@@ -1,0 +1,66 @@
+name: Polaris Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  polaris-scan:
+    runs-on: ubuntu-latest
+
+    env:
+      POLARIS_URL: ${{ vars.POLARIS_URL }}
+      APP_NAME: ${{ github.repository_owner }}
+      PROJECT_NAME: ${{ github.event.repository.name }}
+      BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      PARENT_BRANCH: ${{ github.base_ref || 'main' }}
+      REPO_NAME: ${{ github.event.repository.name }}
+      REPO_OWNER: ${{ github.repository_owner }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Bridge CLI
+        run: |
+          curl -fLsS -o bridge.zip "https://repo.blackduck.com/bds-integrations-release/com/blackduck/integration/bridge/binaries/bridge-cli-bundle/latest/bridge-cli-bundle-linux64.zip"
+          unzip -qo bridge.zip
+          chmod +x bridge-cli-bundle-linux64/bridge-cli
+
+      - name: Run Polaris Scan (Push)
+        if: github.event_name != 'pull_request'
+        env:
+          BRIDGE_POLARIS_ACCESSTOKEN: ${{ secrets.POLARIS_ACCESS_TOKEN }}
+        run: |
+          ./bridge-cli-bundle-linux64/bridge-cli --stage polaris \
+            polaris.serverurl="$POLARIS_URL" \
+            polaris.application.name="$APP_NAME" \
+            polaris.project.name="$PROJECT_NAME" \
+            polaris.branch.name="$BRANCH_NAME" \
+            polaris.assessment.types="SAST,SCA" \
+            polaris.onboarding=true
+
+      - name: Run Polaris Scan with PR Comments
+        if: github.event_name == 'pull_request'
+        env:
+          BRIDGE_POLARIS_ACCESSTOKEN: ${{ secrets.POLARIS_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./bridge-cli-bundle-linux64/bridge-cli --stage polaris \
+            polaris.serverurl="$POLARIS_URL" \
+            polaris.application.name="$APP_NAME" \
+            polaris.project.name="$PROJECT_NAME" \
+            polaris.branch.name="$BRANCH_NAME" \
+            polaris.branch.parent.name="$PARENT_BRANCH" \
+            polaris.assessment.types="SAST,SCA" \
+            polaris.onboarding=true \
+            polaris.prcomment.enabled=true \
+            polaris.prcomment.severities='["CRITICAL","HIGH","MEDIUM"]' \
+            github.repository.name="$REPO_NAME" \
+            github.repository.owner.name="$REPO_OWNER" \
+            github.repository.pull.number="$PR_NUMBER" \
+            github.user.token="$GITHUB_TOKEN"
